@@ -1,0 +1,144 @@
+import torch
+import torch.nn as nn
+import numpy as np
+
+
+class Estimator(object):
+    def __init__(
+        self,
+        num_actions=2,
+        learning_rate=0.001,
+        state_shape=None,
+        mlp_hidden_layer_sizes=None,
+        lstm_hidden_size=100,
+        device=None,
+    ):
+        self.num_actions = num_actions
+        self.learning_rate = learning_rate
+        self.state_shape = state_shape
+        self.mlp_hidden_layer_sizes = mlp_hidden_layer_sizes
+        self.lstm_hidden_size = lstm_hidden_size
+        self.device = device
+
+        # set up Q model and place it in eval mode
+        qnet = DRQN_Network(
+            lstm_input_size=np.prod(self.state_shape),
+            lstm_hidden_size=self.lstm_hidden_size,
+            mlp_hidden_layer_sizes=self.mlp_hidden_layer_sizes,
+            mlp_output_size=self.num_actions,
+        )
+
+        qnet = qnet.to(self.device)
+        self.qnet = qnet
+        self.qnet.eval()
+
+        # set up loss function
+        self.mse_loss = nn.MSELoss(reduction="mean")
+
+        # set up optimizer
+        self.optimizer = torch.optim.Adam(self.qnet.parameters(), lr=self.learning_rate)
+
+    def predict_nograd(self, state):
+        with torch.no_grad():
+            state = torch.from_numpy(state).float().to(self.device)
+            q_as = self.qnet(state).cpu().numpy()
+        return q_as
+
+    def update(self, seqs_of_transitions, target_q_values_per_seq):
+        self.optimizer.zero_grad()
+
+        self.qnet.train()
+
+        batch_loss = 0
+
+        for i in range(len(seqs_of_transitions)):
+            seq = seqs_of_transitions[i]
+
+            self.qnet.reset_hidden_and_cell()
+            # basically a sequence of continuos states
+            states = [t[0]["obs"] for t in seq] + [seq[-1][3]["obs"]]
+
+            states = torch.FloatTensor(states).view(len(states), 1, -1).to(self.device)
+
+            actions = torch.LongTensor([t[1] for t in seq]).view(-1, 1).to(self.device)
+            reward = torch.FloatTensor([t[2] for t in seq]).view(-1).to(self.device)
+
+            # (batch, state_shape) -> (batch, num_actions)
+            q_as = self.qnet(states)
+
+            # (batch, num_actions) -> (batch, )
+
+            Q = torch.gather(q_as, dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)
+
+            batch_loss += self.mse_loss(Q, target_q_values_per_seq[i])
+
+        # update model
+        batch_loss.backward()
+        self.optimizer.step()
+
+        batch_loss = batch_loss.item()
+
+        self.qnet.eval()
+
+        return batch_loss
+
+
+class DRQN_Network(nn.Module):
+    def __init__(
+        self,
+        lstm_input_size,  # number: state size
+        lstm_hidden_size,  # number: lstm output size
+        mlp_hidden_layer_sizes,  # array
+        mlp_output_size,  # number of actions
+    ):
+        super(DRQN_Network, self).__init__()
+
+        self.flatten = nn.Flatten(start_dim=0)
+
+        self.lstm_input_size = lstm_input_size  # state size
+        self.lstm_hidden_size = lstm_hidden_size  # lstm output size
+        self.lstm_num_layers = 1
+
+        self.lstm = nn.LSTM(
+            self.lstm_input_size, self.lstm_hidden_size, self.lstm_num_layers
+        )
+
+        # init the hidden state and the cell state
+        self.reset_hidden_and_cell()
+
+        # mlp input: self.lstm_hidden_size
+
+        self.mlp_input_size = self.lstm_hidden_size
+
+        self.mlp_hidden_layer_sizes = mlp_hidden_layer_sizes
+
+        self.mlp_output_size = mlp_output_size  # number of actions
+
+        all_layer_sizes = (
+            [self.mlp_input_size] + self.mlp_hidden_layer_sizes + [self.mlp_output_size]
+        )
+
+        fc = []
+
+        for l in range(len(all_layer_sizes) - 1):
+            fc.append(nn.Linear(all_layer_sizes[l], all_layer_sizes[l + 1]))
+
+            if l < len(all_layer_sizes) - 1:
+                # if it is not the last layer
+                fc.append(nn.Tanh())
+
+        self.mlp = nn.Sequential(fc)
+
+    def forward(self, input):
+        flat = self.flatten(input)
+        if self.lstm_hidden_state is None and self.cell_state is None:
+            x, (self.lstm_hidden_state, self.cell_state) = self.lstm(input)
+        else:
+            x, (self.lstm_hidden_state, self.cell_state) = self.lstm(
+                input, (self.lstm_hidden_state, self.cell_state)
+            )
+        return self.mlp(x)
+
+    def reset_hidden_and_cell(self):
+        self.lstm_hidden_state = None
+        self.cell_state = None
