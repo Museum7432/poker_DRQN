@@ -58,7 +58,7 @@ class Estimator(object):
 
             self.qnet.reset_hidden_and_cell()
             # basically a sequence of continuos states
-            states = [t[0] for t in seq]
+            states = np.array([t[0] for t in seq])
 
 
             states = torch.FloatTensor(states).view(-1,1,self.lstm_input_size).to(self.device)

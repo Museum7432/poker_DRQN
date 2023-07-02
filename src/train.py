@@ -12,6 +12,7 @@ from rlcard.utils import (
 )
 from agents.DRQN_agent import DRQNAgent
 
+from torch.utils.tensorboard import SummaryWriter
 
 # Make environments to train and evaluate models
 env = rlcard.make('limit-holdem')
@@ -33,18 +34,22 @@ for i in range(2):
         state_shape=env.state_shape[0],
         lstm_hidden_size=150,
         mlp_layers=[128,256],
+        batch_size=128,
+        min_replay_size=500
         
     ))
 
 
+
+random_agent = RandomAgent(num_actions=eval_env.num_actions)
 env.set_agents(drqn_agents)
-
-
+eval_env.set_agents([drqn_agents[0], random_agent])
 
 eval_every = 100
 eval_num = 1000
 episode_num = 300000
 
+logger = SummaryWriter('logs/drqn_drqn_agent')
 
 
 for episode in range(episode_num):
@@ -62,6 +67,14 @@ for episode in range(episode_num):
     for i in range(2):
         drqn_agents[i].feed(trajectories[i])
 
+    if episode % eval_every == 0:
+        score = 0
+        for i in range(eval_num):
+            for j in range(2):
+                drqn_agents[j].reset_hidden_and_cell()
+            score += tournament(eval_env, 1)[0]
+        logger.add_scalar('reward vs. random agent', score / eval_num, episode)
+    
 
 
 

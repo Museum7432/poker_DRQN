@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 from collections import namedtuple
 from copy import deepcopy
+# for testing
+from torchinfo import summary
 
 from .models.DRQN_model import Estimator
 
@@ -96,11 +98,15 @@ class DRQNAgent(object):
 
         self.q_net = Estimator(
             num_actions=self.num_actions,
+            lstm_hidden_size=self.lstm_hidden_size,
             learning_rate=self.lr,
             state_shape=self.state_shape,
             mlp_hidden_layer_sizes=self.mlp_layers,
             device=self.device,
         )
+
+        print(self.mlp_layers)
+
         self.target_net = Estimator(
             num_actions=self.num_actions,
             lstm_hidden_size=self.lstm_hidden_size,
@@ -110,8 +116,16 @@ class DRQNAgent(object):
             device=self.device,
         )
 
+        # print(self.q_net.qnet.state_dict())
+        self.target_net.qnet.load_state_dict(self.q_net.qnet.state_dict())
 
-        # self.target_net.qnet.load_state_dict(self.q_net.qnet.state_dict())
+
+        # summary(self.target_net.qnet, input_size=(1,72))
+
+        # summary(self.q_net.qnet, input_size=(1,72))
+
+        # exit()
+        
 
         self.memory = Memory(
             memory_size=memory_size,
@@ -178,6 +192,24 @@ class DRQNAgent(object):
         action_idx = np.random.choice(np.arange(len(probs)), p=probs)
 
         return legal_actions[action_idx]
+    
+    def eval_step(self, state):
+        ''' Predict the action for evaluation purpose.
+
+        Args:
+            state (numpy.array): current state
+
+        Returns:
+            action (int): an action id
+            info (dict): A dictionary containing information
+        '''
+        q_values = self.predict(state)
+        best_action = np.argmax(q_values)
+
+        info = {}
+        info['values'] = {state['raw_legal_actions'][i]: float(q_values[list(state['legal_actions'].keys())[i]]) for i in range(len(state['legal_actions']))}
+
+        return best_action, info
 
     def predict(self, state):
         legal_actions = list(state["legal_actions"].keys())
@@ -244,6 +276,7 @@ class DRQNAgent(object):
         # Update the target estimator
         if self.train_t % self.target_update_frequency == 0:
             # self.target_net = deepcopy(self.q_net)
+            self.target_net.qnet.load_state_dict(self.q_net.qnet.state_dict())
             print("\nINFO - Copied model parameters to target network.")
 
         self.train_t += 1
