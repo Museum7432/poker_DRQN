@@ -20,9 +20,11 @@ class Estimator(object):
         self.lstm_hidden_size = lstm_hidden_size
         self.device = device
 
+        self.lstm_input_size = np.prod(self.state_shape)
+
         # set up Q model and place it in eval mode
         qnet = DRQN_Network(
-            lstm_input_size=np.prod(self.state_shape),
+            lstm_input_size=self.lstm_input_size,
             lstm_hidden_size=self.lstm_hidden_size,
             mlp_hidden_layer_sizes=self.mlp_hidden_layer_sizes,
             mlp_output_size=self.num_actions,
@@ -40,7 +42,7 @@ class Estimator(object):
 
     def predict_nograd(self, state):
         with torch.no_grad():
-            state = torch.from_numpy(state).float().to(self.device)
+            # state = torch.from_numpy(state).float().to(self.device)
             q_as = self.qnet(state).cpu().numpy()
         return q_as
 
@@ -56,21 +58,24 @@ class Estimator(object):
 
             self.qnet.reset_hidden_and_cell()
             # basically a sequence of continuos states
-            states = [t[0]["obs"] for t in seq] + [seq[-1][3]["obs"]]
+            states = [t[0] for t in seq]
 
-            states = torch.FloatTensor(states).view(len(states), 1, -1).to(self.device)
+
+            states = torch.FloatTensor(states).view(-1,1,self.lstm_input_size).to(self.device)
 
             actions = torch.LongTensor([t[1] for t in seq]).view(-1, 1).to(self.device)
-            reward = torch.FloatTensor([t[2] for t in seq]).view(-1).to(self.device)
+            target = torch.FloatTensor(target_q_values_per_seq[i]).view(-1).to(self.device)
 
             # (batch, state_shape) -> (batch, num_actions)
             q_as = self.qnet(states)
 
+
+
             # (batch, num_actions) -> (batch, )
 
-            Q = torch.gather(q_as, dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)
-
-            batch_loss += self.mse_loss(Q, target_q_values_per_seq[i])
+            Q = torch.gather(q_as, dim=-1, index=actions.unsqueeze(-1)).squeeze(-1).view(-1)
+            # exit()
+            batch_loss += self.mse_loss(Q, target)
 
         # update model
         batch_loss.backward()
@@ -81,6 +86,7 @@ class Estimator(object):
         self.qnet.eval()
 
         return batch_loss
+    
 
 
 class DRQN_Network(nn.Module):
@@ -92,8 +98,6 @@ class DRQN_Network(nn.Module):
         mlp_output_size,  # number of actions
     ):
         super(DRQN_Network, self).__init__()
-
-        self.flatten = nn.Flatten(start_dim=0)
 
         self.lstm_input_size = lstm_input_size  # state size
         self.lstm_hidden_size = lstm_hidden_size  # lstm output size
@@ -127,10 +131,9 @@ class DRQN_Network(nn.Module):
                 # if it is not the last layer
                 fc.append(nn.Tanh())
 
-        self.mlp = nn.Sequential(fc)
+        self.mlp = nn.Sequential(*fc)
 
-    def forward(self, input):
-        flat = self.flatten(input)
+    def forward(self, input):  
         if self.lstm_hidden_state is None and self.cell_state is None:
             x, (self.lstm_hidden_state, self.cell_state) = self.lstm(input)
         else:
