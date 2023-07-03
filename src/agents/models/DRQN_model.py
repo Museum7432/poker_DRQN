@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-
 class Estimator(object):
     def __init__(
         self,
@@ -60,21 +59,28 @@ class Estimator(object):
             # basically a sequence of continuos states
             states = np.array([t[0] for t in seq])
 
-
-            states = torch.FloatTensor(states).view(-1,1,self.lstm_input_size).to(self.device)
+            states = (
+                torch.FloatTensor(states)
+                .view(-1, 1, self.lstm_input_size)
+                .to(self.device)
+            )
 
             actions = torch.LongTensor([t[1] for t in seq]).view(-1, 1).to(self.device)
-            target = torch.FloatTensor(target_q_values_per_seq[i]).view(-1).to(self.device)
+            target = (
+                torch.FloatTensor(target_q_values_per_seq[i]).view(-1).to(self.device)
+            )
 
             # (batch, state_shape) -> (batch, num_actions)
             q_as = self.qnet(states)
 
-
-
             # (batch, num_actions) -> (batch, )
 
-            Q = torch.gather(q_as, dim=-1, index=actions.unsqueeze(-1)).squeeze(-1).view(-1)
-            # exit()
+            Q = (
+                torch.gather(q_as, dim=-1, index=actions.unsqueeze(-1))
+                .squeeze(-1)
+                .view(-1)
+            )
+            
             batch_loss += self.mse_loss(Q, target)
 
         # update model
@@ -86,7 +92,38 @@ class Estimator(object):
         self.qnet.eval()
 
         return batch_loss
-    
+
+    def checkpoint_attributes(self):
+        """Return the attributes needed to restore the model from a checkpoint"""
+        return {
+            "qnet": self.qnet.state_dict(),
+            # "lstm_hidden_state":self.qnet.lstm_hidden_state,
+            # "cell_state":self.qnet.cell_state,
+            "optimizer": self.optimizer.state_dict(),
+            "num_actions": self.num_actions,
+            "learning_rate": self.learning_rate,
+            "state_shape": self.state_shape,
+            "mlp_hidden_layer_sizes": self.mlp_hidden_layer_sizes,
+            "lstm_hidden_size": self.lstm_hidden_size,
+            "device": self.device,
+        }
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint):
+        """Restore the model from a checkpoint"""
+        estimator = cls(
+            num_actions=checkpoint["num_actions"],
+            lstm_hidden_size=checkpoint["lstm_hidden_size"],
+            learning_rate=checkpoint["learning_rate"],
+            state_shape=checkpoint["state_shape"],
+            mlp_hidden_layer_sizes=checkpoint["mlp_hidden_layer_sizes"],
+            device=checkpoint["device"],
+        )
+
+        estimator.qnet.load_state_dict(checkpoint["qnet"])
+        # estimator.qnet.load_hidden_and_cell(checkpoint["lstm_hidden_state"], checkpoint["cell_state"])
+        estimator.optimizer.load_state_dict(checkpoint["optimizer"])
+        return estimator
 
 
 class DRQN_Network(nn.Module):
@@ -133,7 +170,7 @@ class DRQN_Network(nn.Module):
 
         self.mlp = nn.Sequential(*fc)
 
-    def forward(self, input):  
+    def forward(self, input):
         if self.lstm_hidden_state is None and self.cell_state is None:
             x, (self.lstm_hidden_state, self.cell_state) = self.lstm(input)
         else:
@@ -145,3 +182,14 @@ class DRQN_Network(nn.Module):
     def reset_hidden_and_cell(self):
         self.lstm_hidden_state = None
         self.cell_state = None
+
+    def load_hidden_and_cell(self, hidden, cell):
+        if hidden == None:
+            self.lstm_hidden_state = None
+        else:
+            self.lstm_hidden_state = torch.clone(hidden)
+
+        if cell == None:
+            self.cell_state = None
+        else:
+            self.cell_state = torch.clone(cell)

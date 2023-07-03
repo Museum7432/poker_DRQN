@@ -5,8 +5,6 @@ import torch
 import torch.nn as nn
 from collections import namedtuple
 from copy import deepcopy
-# for testing
-from torchinfo import summary
 
 from .models.DRQN_model import Estimator
 
@@ -39,6 +37,36 @@ class Memory:
     def sample(self):
         return random.sample(self.memory, self.batch_size)
 
+    def checkpoint_attributes(self):
+        """Returns the attributes that need to be checkpointed"""
+
+        return {
+            "memory_size": self.memory_size,
+            "batch_size": self.batch_size,
+            "memory": self.memory,
+            "min_replay_size": self.min_replay_size,
+        }
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint):
+        """
+        Restores the attributes from the checkpoint
+
+        Args:
+            checkpoint (dict): the checkpoint dictionary
+
+        Returns:
+            instance (Memory): the restored instance
+        """
+
+        instance = cls(
+            checkpoint["memory_size"],
+            checkpoint["min_replay_size"],
+            checkpoint["batch_size"],
+        )
+        instance.memory = checkpoint["memory"]
+        return instance
+
 
 class DRQNAgent(object):
     def __init__(
@@ -58,7 +86,7 @@ class DRQNAgent(object):
         mlp_layers=None,
         lstm_hidden_size=100,
         device=None,
-        save_path=None,
+        save_path="saves",
         save_every=float("inf"),
     ) -> None:
         self.use_raw = False
@@ -69,6 +97,8 @@ class DRQNAgent(object):
         self.batch_size = batch_size
         self.num_actions = num_actions
         self.train_every = train_every
+        self.min_epsilon = min_epsilon
+        self.max_epsilon = max_epsilon
 
         self.min_replay_size = min_replay_size
 
@@ -105,8 +135,6 @@ class DRQNAgent(object):
             device=self.device,
         )
 
-        print(self.mlp_layers)
-
         self.target_net = Estimator(
             num_actions=self.num_actions,
             lstm_hidden_size=self.lstm_hidden_size,
@@ -116,16 +144,7 @@ class DRQNAgent(object):
             device=self.device,
         )
 
-        # print(self.q_net.qnet.state_dict())
         self.target_net.qnet.load_state_dict(self.q_net.qnet.state_dict())
-
-
-        # summary(self.target_net.qnet, input_size=(1,72))
-
-        # summary(self.q_net.qnet, input_size=(1,72))
-
-        # exit()
-        
 
         self.memory = Memory(
             memory_size=memory_size,
@@ -142,12 +161,9 @@ class DRQNAgent(object):
             return
         seq = []
 
-        # print(seq_of_transition)
-
         for ts in seq_of_transition:
-            
             (state, action, reward, next_state, done) = tuple(ts)
-            
+
             seq.append(
                 Transition(
                     state=state["obs"],
@@ -155,7 +171,7 @@ class DRQNAgent(object):
                     reward=reward,
                     next_state=next_state["obs"],
                     legal_actions=list(next_state["legal_actions"].keys()),
-                    done=done
+                    done=done,
                 )
             )
 
@@ -192,9 +208,9 @@ class DRQNAgent(object):
         action_idx = np.random.choice(np.arange(len(probs)), p=probs)
 
         return legal_actions[action_idx]
-    
+
     def eval_step(self, state):
-        ''' Predict the action for evaluation purpose.
+        """Predict the action for evaluation purpose.
 
         Args:
             state (numpy.array): current state
@@ -202,12 +218,17 @@ class DRQNAgent(object):
         Returns:
             action (int): an action id
             info (dict): A dictionary containing information
-        '''
+        """
         q_values = self.predict(state)
         best_action = np.argmax(q_values)
 
         info = {}
-        info['values'] = {state['raw_legal_actions'][i]: float(q_values[list(state['legal_actions'].keys())[i]]) for i in range(len(state['legal_actions']))}
+        info["values"] = {
+            state["raw_legal_actions"][i]: float(
+                q_values[list(state["legal_actions"].keys())[i]]
+            )
+            for i in range(len(state["legal_actions"]))
+        }
 
         return best_action, info
 
@@ -215,16 +236,17 @@ class DRQNAgent(object):
         legal_actions = list(state["legal_actions"].keys())
 
         state = state["obs"]
-        state = torch.tensor(state, dtype=torch.float32).view(-1,len(state)).to(self.device)
+        state = (
+            torch.tensor(state, dtype=torch.float32)
+            .view(-1, self.lstm_input_size)
+            .to(self.device)
+        )
         q_values = self.q_net.predict_nograd(state)[0]
 
         masked_q_values = -np.inf * np.ones(self.num_actions, dtype=float)
 
-        
-
         for a in legal_actions:
             masked_q_values[a] = q_values[a]
-
 
         return masked_q_values
 
@@ -247,12 +269,15 @@ class DRQNAgent(object):
             rewards = [t[2] for t in seq]
             done = [t[4] for t in seq]
 
-
-            next_states = torch.FloatTensor(next_states).view(-1,1,self.lstm_input_size).to(self.device)
-
+            next_states = (
+                torch.FloatTensor(next_states)
+                .view(-1, 1, self.lstm_input_size)
+                .to(self.device)
+            )
             
-
             q_values_next_target = self.target_net.predict_nograd(next_states)
+
+
 
             # Compute targets using the formulation sample = r + gamma * max q(s',a')
             max_target_q_values = q_values_next_target.max(axis=-1)
@@ -263,11 +288,13 @@ class DRQNAgent(object):
                 if done[i]:
                     q_values_target.append(rewards[i])
                 else:
-                    q_values_target.append(rewards[i] + self.gamma*max_target_q_values[i][0])
-            
+                    q_values_target.append(
+                        rewards[i] + self.gamma * max_target_q_values[i][0]
+                    )
 
-            target_q_values_per_seq.append(np.asarray(q_values_target,dtype=np.float32))
-    
+            target_q_values_per_seq.append(
+                np.asarray(q_values_target, dtype=np.float32)
+            )
 
 
         loss = self.q_net.update(sequences, target_q_values_per_seq)
@@ -284,9 +311,9 @@ class DRQNAgent(object):
         if self.save_path and self.train_t % self.save_every == 0:
             # To preserve every checkpoint separately,
             # add another argument to the function call parameterized by self.train_t
-            self.save_checkpoint(self.save_path)
+            self.save_checkpoint(self.save_path, filename="checkpoint_drqn.pt")
             print("\nINFO - Saved model checkpoint.")
-    
+
     def set_device(self, device):
         self.device = device
         self.q_net.device = device
@@ -295,3 +322,78 @@ class DRQNAgent(object):
     def reset_hidden_and_cell(self):
         self.q_net.qnet.reset_hidden_and_cell()
         self.target_net.qnet.reset_hidden_and_cell()
+
+    def checkpoint_attributes(self):
+        """
+        Return the current checkpoint attributes (dict)
+        Checkpoint attributes are used to save and restore the model in the middle of training
+        Saves the model state dict, optimizer state dict, and all other instance variables
+        """
+
+        return {
+            "agent_type": "DQNAgent",
+            "q_net": self.q_net.checkpoint_attributes(),
+            "memory": self.memory.checkpoint_attributes(),
+            "total_t": self.total_t,
+            "train_t": self.train_t,
+            "target_update_frequency": self.target_update_frequency,
+            "max_epsilon": self.max_epsilon,
+            "min_epsilon": self.min_epsilon,
+            "epsilon_decay_steps": self.epsilon_decay_steps,
+            "gamma": self.gamma,
+            "lr": self.lr,
+            "num_actions": self.num_actions,
+            "train_every": self.train_every,
+            "device": self.device,
+            "save_path": self.gamma,
+            "save_every": self.gamma,
+        }
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint):
+        """
+        Restore the model from a checkpoint
+
+        Args:
+            checkpoint (dict): the checkpoint attributes generated by checkpoint_attributes()
+        """
+
+        print("\nINFO - Restoring model from checkpoint...")
+        agent_instance = cls(
+            target_update_frequency=checkpoint["target_update_frequency"],
+            max_epsilon=checkpoint["max_epsilon"],
+            min_epsilon=checkpoint["min_epsilon"],
+            epsilon_decay_steps=checkpoint["epsilon_decay_steps"],
+            gamma=checkpoint["gamma"],  # discount_factor
+            lr=checkpoint["lr"],
+            memory_size=checkpoint["memory"]["memory_size"],
+            min_replay_size=checkpoint["memory"]["min_replay_size"],
+            batch_size=checkpoint["memory"]["batch_size"],
+            num_actions=checkpoint["num_actions"],
+            state_shape=checkpoint["q_net"]["state_shape"],
+            train_every=checkpoint["train_every"],
+            mlp_layers=checkpoint["q_net"]["mlp_hidden_layer_sizes"],
+            lstm_hidden_size=checkpoint["q_net"]["lstm_hidden_size"],
+            device=checkpoint["device"],
+            save_path=checkpoint["save_path"],
+            save_every=checkpoint["save_every"],
+        )
+
+        agent_instance.total_t = checkpoint["total_t"]
+        agent_instance.train_t = checkpoint["train_t"]
+
+        agent_instance.q_net.from_checkpoint(checkpoint["q_net"])
+        agent_instance.target_net.qnet.load_state_dict(
+            agent_instance.q_net.qnet.state_dict()
+        )
+        agent_instance.memory = Memory.from_checkpoint(checkpoint["memory"])
+
+        return agent_instance
+
+    def save_checkpoint(self, path="saves", filename="checkpoint_drqn.pt"):
+        """Save the model checkpoint (all attributes)
+
+        Args:
+            path (str): the path to save the model
+        """
+        torch.save(self.checkpoint_attributes(), path + "/" + filename)
