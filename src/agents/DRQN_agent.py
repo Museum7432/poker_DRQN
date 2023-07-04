@@ -113,7 +113,7 @@ class DRQNAgent(object):
 
         # Torch device
         if device is None:
-            self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         else:
             self.device = device
 
@@ -265,37 +265,25 @@ class DRQNAgent(object):
 
         for seq in sequences:
             self.target_net.qnet.reset_hidden_and_cell()
+            
             next_states = np.array([t[3] for t in seq])
-            rewards = [t[2] for t in seq]
-            done = [t[4] for t in seq]
+            rewards = np.array([t[2] for t in seq])
+            dones = np.array([t[4] for t in seq])
 
             next_states = (
                 torch.FloatTensor(next_states)
                 .view(-1, 1, self.lstm_input_size)
                 .to(self.device)
             )
-            
+
             q_values_next_target = self.target_net.predict_nograd(next_states)
 
-
-
             # Compute targets using the formulation sample = r + gamma * max q(s',a')
-            max_target_q_values = q_values_next_target.max(axis=-1)
+            max_target_q_values = q_values_next_target.max(axis=-1).reshape((-1))
 
-            q_values_target = []
+            q_values_target = rewards + self.gamma * (1 - dones) * max_target_q_values
 
-            for i in range(len(q_values_next_target)):
-                if done[i]:
-                    q_values_target.append(rewards[i])
-                else:
-                    q_values_target.append(
-                        rewards[i] + self.gamma * max_target_q_values[i][0]
-                    )
-
-            target_q_values_per_seq.append(
-                np.asarray(q_values_target, dtype=np.float32)
-            )
-
+            target_q_values_per_seq.append(q_values_target)
 
         loss = self.q_net.update(sequences, target_q_values_per_seq)
         print("\rINFO - Step {}, rl-loss: {}".format(self.total_t, loss), end="")

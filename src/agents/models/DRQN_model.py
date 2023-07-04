@@ -80,7 +80,6 @@ class Estimator(object):
                 .squeeze(-1)
                 .view(-1)
             )
-            
             batch_loss += self.mse_loss(Q, target)
 
         # update model
@@ -97,8 +96,8 @@ class Estimator(object):
         """Return the attributes needed to restore the model from a checkpoint"""
         return {
             "qnet": self.qnet.state_dict(),
-            # "lstm_hidden_state":self.qnet.lstm_hidden_state,
-            # "cell_state":self.qnet.cell_state,
+            "lstm_hidden_state":self.qnet.lstm_hidden_state,
+            "cell_state":self.qnet.cell_state,
             "optimizer": self.optimizer.state_dict(),
             "num_actions": self.num_actions,
             "learning_rate": self.learning_rate,
@@ -121,7 +120,7 @@ class Estimator(object):
         )
 
         estimator.qnet.load_state_dict(checkpoint["qnet"])
-        # estimator.qnet.load_hidden_and_cell(checkpoint["lstm_hidden_state"], checkpoint["cell_state"])
+        estimator.qnet.load_hidden_and_cell(checkpoint["lstm_hidden_state"], checkpoint["cell_state"])
         estimator.optimizer.load_state_dict(checkpoint["optimizer"])
         return estimator
 
