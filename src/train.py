@@ -44,10 +44,10 @@ train_every = 1
 mlp_layers = [256, 512]
 lstm_hidden_size = 128
 save_path = "saves"
-save_every = 500
+save_every = 1000
 
 
-eval_every = 200
+eval_every = 500
 eval_num = 1000
 episode_num = 300000
 
