@@ -286,7 +286,7 @@ class DRQNAgent(object):
             target_q_values_per_seq.append(q_values_target)
 
         loss = self.q_net.update(sequences, target_q_values_per_seq)
-        if self.train_t % 300 == 0:
+        if self.train_t % 100 == 0:
             print("\rINFO - Step {}, rl-loss: {}".format(self.total_t, loss), end="")
 
         # Update the target estimator

@@ -35,7 +35,7 @@ max_epsilon = 1
 min_epsilon = 0.1
 epsilon_decay_steps = 20000
 gamma = 0.99  # discount_factor
-lr = 0.00005
+lr = 0.0001
 memory_size = 100000
 min_replay_size = 200
 batch_size = 32
@@ -77,15 +77,14 @@ train_target = DRQNAgent(
     device=device,
 )
 
-if os.path.isfile(save_path + "/checkpoint_drqn.pt"):
+if os.path.isfile(save_path + "/last.pt"):
     drqn_agent = DRQNAgent.from_checkpoint(
-        torch.load(save_path + "/checkpoint_drqn.pt")
+        torch.load(save_path + "/last.pt")
     )
 
     train_target.q_net.qnet.load_state_dict(drqn_agent.q_net.qnet.state_dict())
     drqn_agent.reset_hidden_and_cell()
     train_target.reset_hidden_and_cell()
-    print(torch.load(save_path + "/checkpoint_drqn.pt")["total_t"])
 else:
     drqn_agent = DRQNAgent(
         target_update_frequency=target_update_frequency,
@@ -124,7 +123,7 @@ logger = SummaryWriter(
 
 def handler(signum, frame):
     print("\n\tSIGINT received\n\tsaving model and shutting down")
-    drqn_agent.save_checkpoint(filename="last" + datetime.datetime.now().strftime("_%m-%d-%y_%H-%M-%S") + ".pt")
+    drqn_agent.save_checkpoint(filename="last.pt")
     exit()
 
 
@@ -133,7 +132,7 @@ signal.signal(signal.SIGINT, handler)
 
 for episode in range(episode_num):
     if episode % update_every == 0 and drqn_agent.memory.ready():
-        print("\ncopy model parameters to target agent")
+        # print("\rINFO - copy model parameters to target agent")
         train_target.q_net.from_checkpoint(drqn_agent.q_net.checkpoint_attributes())
     # reset hidden state of recurrent agents
     drqn_agent.reset_hidden_and_cell()
