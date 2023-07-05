@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from collections import namedtuple
 from copy import deepcopy
-
+import datetime
 from .models.DRQN_model import Estimator
 
 
@@ -113,7 +113,7 @@ class DRQNAgent(object):
 
         # Torch device
         if device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = device
 
@@ -265,7 +265,7 @@ class DRQNAgent(object):
 
         for seq in sequences:
             self.target_net.qnet.reset_hidden_and_cell()
-            
+
             next_states = np.array([t[3] for t in seq])
             rewards = np.array([t[2] for t in seq])
             dones = np.array([t[4] for t in seq])
@@ -286,7 +286,8 @@ class DRQNAgent(object):
             target_q_values_per_seq.append(q_values_target)
 
         loss = self.q_net.update(sequences, target_q_values_per_seq)
-        print("\rINFO - Step {}, rl-loss: {}".format(self.total_t, loss), end="")
+        if self.train_t % 300 == 0:
+            print("\rINFO - Step {}, rl-loss: {}".format(self.total_t, loss), end="")
 
         # Update the target estimator
         if self.train_t % self.target_update_frequency == 0:
@@ -299,7 +300,12 @@ class DRQNAgent(object):
         if self.save_path and self.train_t % self.save_every == 0:
             # To preserve every checkpoint separately,
             # add another argument to the function call parameterized by self.train_t
-            self.save_checkpoint(self.save_path, filename="checkpoint_drqn.pt")
+            self.save_checkpoint(
+                self.save_path,
+                filename="checkpoint_drqn"
+                + datetime.datetime.now().strftime("_%m-%d-%y_%H-%M-%S")
+                + ".pt",
+            )
             print("\nINFO - Saved model checkpoint.")
 
     def set_device(self, device):
@@ -370,7 +376,7 @@ class DRQNAgent(object):
         agent_instance.total_t = checkpoint["total_t"]
         agent_instance.train_t = checkpoint["train_t"]
 
-        agent_instance.q_net.from_checkpoint(checkpoint["q_net"])
+        agent_instance.q_net = Estimator.from_checkpoint(checkpoint["q_net"])
         agent_instance.target_net.qnet.load_state_dict(
             agent_instance.q_net.qnet.state_dict()
         )

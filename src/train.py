@@ -1,7 +1,8 @@
 import rlcard
 import os.path
 import torch
-from rlcard.agents import RandomAgent
+import datetime
+from rlcard.agents import RandomAgent, DQNAgent
 from rlcard.utils.utils import tournament
 from rlcard.utils import (
     tournament,
@@ -51,28 +52,10 @@ eval_every = 500
 eval_num = 1000
 episode_num = 300000
 
-update_every = 150
+update_every = 200
+
 # initialize DRQN agents
 
-drqn_agent = DRQNAgent(
-    target_update_frequency=target_update_frequency,
-    max_epsilon=max_epsilon,
-    min_epsilon=min_epsilon,
-    epsilon_decay_steps=epsilon_decay_steps,
-    gamma=gamma,  # discount_factor
-    lr=lr,
-    memory_size=memory_size,
-    min_replay_size=min_replay_size,
-    batch_size=batch_size,
-    num_actions=num_actions,
-    state_shape=state_shape,
-    train_every=train_every,
-    mlp_layers=mlp_layers,
-    lstm_hidden_size=lstm_hidden_size,
-    save_path=save_path,
-    save_every=save_every,
-    device=device,
-)
 
 train_target = DRQNAgent(
     target_update_frequency=target_update_frequency,
@@ -94,28 +77,56 @@ train_target = DRQNAgent(
     device=device,
 )
 
-pretrained_eval = models.load("limit-holdem-rule-v1").agents[0]
-
 if os.path.isfile(save_path + "/checkpoint_drqn.pt"):
-    drqn_agent.from_checkpoint(torch.load(save_path + "/checkpoint_drqn.pt"))
-    train_target.from_checkpoint(drqn_agent.checkpoint_attributes())
+    drqn_agent = DRQNAgent.from_checkpoint(
+        torch.load(save_path + "/checkpoint_drqn.pt")
+    )
+
+    train_target.q_net.qnet.load_state_dict(drqn_agent.q_net.qnet.state_dict())
     drqn_agent.reset_hidden_and_cell()
     train_target.reset_hidden_and_cell()
+    print(torch.load(save_path + "/checkpoint_drqn.pt")["total_t"])
+else:
+    drqn_agent = DRQNAgent(
+        target_update_frequency=target_update_frequency,
+        max_epsilon=max_epsilon,
+        min_epsilon=min_epsilon,
+        epsilon_decay_steps=epsilon_decay_steps,
+        gamma=gamma,  # discount_factor
+        lr=lr,
+        memory_size=memory_size,
+        min_replay_size=min_replay_size,
+        batch_size=batch_size,
+        num_actions=num_actions,
+        state_shape=state_shape,
+        train_every=train_every,
+        mlp_layers=mlp_layers,
+        lstm_hidden_size=lstm_hidden_size,
+        save_path=save_path,
+        save_every=save_every,
+        device=device,
+    )
+
+
+# pretrained_model = models.load("limit-holdem-rule-v1").agents[0]
 
 random_agent = RandomAgent(num_actions=eval_env.num_actions)
 
-eval_env.set_agents([drqn_agent, pretrained_eval])
+eval_env.set_agents([drqn_agent, random_agent])
 
 env.set_agents([drqn_agent, train_target])
 
 
-logger = SummaryWriter("logs/drqn_drqn_agent")
+logger = SummaryWriter(
+    "logs/drqn_drqn_agent" + datetime.datetime.now().strftime("_%m-%d-%y_%H-%M-%S")
+)
 
 
 def handler(signum, frame):
-    print("\nexit")
-    drqn_agent.save_checkpoint(filename="last.pt")
+    print("\n\tSIGINT received\n\tsaving model and shutting down")
+    drqn_agent.save_checkpoint(filename="last" + datetime.datetime.now().strftime("_%m-%d-%y_%H-%M-%S") + ".pt")
     exit()
+
 
 signal.signal(signal.SIGINT, handler)
 
