@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from collections import namedtuple
 from copy import deepcopy
-import datetime
+from logger import logger
 from .models.DRQN_model import Estimator
 
 
@@ -286,7 +286,13 @@ class DRQNAgent(object):
             target_q_values_per_seq.append(q_values_target)
 
         loss = self.q_net.update(sequences, target_q_values_per_seq)
-        if self.train_t % 100 == 0:
+        
+        if self.train_t % 50 == 0:
+            # save losses to tensorboard
+            logger.add_scalar("loss per 50 updates", loss, self.total_t)
+            
+        
+        if self.train_t % 20 == 0:
             print("\rINFO - Step {}, rl-loss: {}".format(self.total_t, loss), end="")
 
         # Update the target estimator
@@ -302,9 +308,7 @@ class DRQNAgent(object):
             # add another argument to the function call parameterized by self.train_t
             self.save_checkpoint(
                 self.save_path,
-                filename="checkpoint_drqn"
-                + datetime.datetime.now().strftime("_%m-%d-%y_%H-%M-%S")
-                + ".pt",
+                filename="checkpoint_drqn" + str(self.train_t) + ".pt",
             )
             print("\nINFO - Saved model checkpoint.")
 
@@ -339,12 +343,10 @@ class DRQNAgent(object):
             "num_actions": self.num_actions,
             "train_every": self.train_every,
             "device": self.device,
-            "save_path": self.gamma,
-            "save_every": self.gamma,
         }
 
     @classmethod
-    def from_checkpoint(cls, checkpoint):
+    def from_checkpoint(cls, checkpoint, save_path="saves", save_every=1000):
         """
         Restore the model from a checkpoint
 
@@ -369,8 +371,8 @@ class DRQNAgent(object):
             mlp_layers=checkpoint["q_net"]["mlp_hidden_layer_sizes"],
             lstm_hidden_size=checkpoint["q_net"]["lstm_hidden_size"],
             device=checkpoint["device"],
-            save_path=checkpoint["save_path"],
-            save_every=checkpoint["save_every"],
+            save_path=save_path,
+            save_every=save_every,
         )
 
         agent_instance.total_t = checkpoint["total_t"]
