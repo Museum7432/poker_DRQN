@@ -1,4 +1,4 @@
-#**Poker with Self-play Deep Recurrent Q-learning**
+# **Poker with Self-play Deep Recurrent Q-learning**
 
 *Lê Gia Khang - 21522189*
 
