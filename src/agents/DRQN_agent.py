@@ -286,12 +286,11 @@ class DRQNAgent(object):
             target_q_values_per_seq.append(q_values_target)
 
         loss = self.q_net.update(sequences, target_q_values_per_seq)
-        
+
         if self.train_t % 50 == 0:
             # save losses to tensorboard
             logger.add_scalar("loss per 50 updates", loss, self.total_t)
-            
-        
+
         if self.train_t % 20 == 0:
             print("\rINFO - Step {}, rl-loss: {}".format(self.total_t, loss), end="")
 
@@ -343,10 +342,12 @@ class DRQNAgent(object):
             "num_actions": self.num_actions,
             "train_every": self.train_every,
             "device": self.device,
+            "save_path": self.save_path,
+            "save_every": self.save_every,
         }
 
     @classmethod
-    def from_checkpoint(cls, checkpoint, save_path="saves", save_every=1000):
+    def from_checkpoint(cls, checkpoint, save_path=None, save_every=None):
         """
         Restore the model from a checkpoint
 
@@ -371,8 +372,8 @@ class DRQNAgent(object):
             mlp_layers=checkpoint["q_net"]["mlp_hidden_layer_sizes"],
             lstm_hidden_size=checkpoint["q_net"]["lstm_hidden_size"],
             device=checkpoint["device"],
-            save_path=save_path,
-            save_every=save_every,
+            save_path=save_path if save_path is not None else checkpoint["save_path"],
+            save_every=save_every if save_every is not None else checkpoint["save_every"],
         )
 
         agent_instance.total_t = checkpoint["total_t"]

@@ -2,7 +2,6 @@ import signal
 import rlcard
 import os.path
 import torch
-import datetime
 from rlcard.agents import RandomAgent, DQNAgent
 from logger import logger
 from rlcard.utils.utils import tournament
@@ -12,12 +11,8 @@ from rlcard.utils import (
     Logger,
     plot_curve,
 )
-from rlcard import models
-
 from agents.DRQN_agent import DRQNAgent
 from agents.DRQN_train_target import DRQN_target_Agent
-
-from torch.utils.tensorboard import SummaryWriter
 
 
 # Make environments to train and evaluate models
@@ -55,11 +50,9 @@ eval_every = 500
 eval_num = 100
 episode_num = 300000
 
-update_every = 200
+update_every = 50
 
-# initialize DRQN agents
-
-
+# initialize DRQN target agents
 train_target = DRQN_target_Agent(
     num_actions=num_actions,
     state_shape=state_shape,
@@ -111,7 +104,7 @@ env.set_agents([drqn_agent, train_target])
 
 
 def handler(signum, frame):
-    print("logger\n\tSIGINT received\n\tsaving model and shutting down")
+    print("\n\tSIGINT received\n\tsaving model and shutting down")
     drqn_agent.save_checkpoint(filename="last.pt")
     exit()
 

@@ -22,7 +22,7 @@ class Estimator(object):
         self.lstm_input_size = np.prod(self.state_shape)
 
         # set up Q model and place it in eval mode
-        qnet = DRQN_Network(
+        qnet = EstimatorNetwork(
             lstm_input_size=self.lstm_input_size,
             lstm_hidden_size=self.lstm_hidden_size,
             mlp_hidden_layer_sizes=self.mlp_hidden_layer_sizes,
@@ -125,7 +125,7 @@ class Estimator(object):
         return estimator
 
 
-class DRQN_Network(nn.Module):
+class EstimatorNetwork(nn.Module):
     def __init__(
         self,
         lstm_input_size,  # number: state size
@@ -133,7 +133,7 @@ class DRQN_Network(nn.Module):
         mlp_hidden_layer_sizes,  # array
         mlp_output_size,  # number of actions
     ):
-        super(DRQN_Network, self).__init__()
+        super(EstimatorNetwork, self).__init__()
 
         self.lstm_input_size = lstm_input_size  # state size
         self.lstm_hidden_size = lstm_hidden_size  # lstm output size

@@ -4,4 +4,4 @@
 
 train_process_pid=$(ps -e -o pid,command | grep python | grep train | head -n1 | awk '{print $1}')
 
-kill -SIGINT $train_process_pid
+kill -SIGINT $(ps -e -o pid,command | grep python | grep train | head -n1 | awk '{print $1}')
