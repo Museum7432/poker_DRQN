@@ -1,7 +1,4 @@
-# **Poker with Self-play Deep Recurrent Q-learning**
-
-*Lê Gia Khang - 21522189*
-
-*Lê Duy Khang - 21522188*
-
-results: https://drive.google.com/drive/folders/1FHGvg00xYm4RNPPR1q0_W-JaUTkpN9rR?usp=sharing
+# Poker-DRQN
+- This is the final project of my CS106 course, my very first AI project.
+- I built an Agent to play Poker - Leduc Holdem, my Agent did well on certain cases.
+- I put all my code, slide and my report here. I also upload my checkpoint so you can use it for experiments.
